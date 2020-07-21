@@ -41,6 +41,43 @@ class_dict = {
              9:'Background'
              }
 
+def get_dataset_mean_stdev(im_dir):
+    """
+    Returns mean and standard deviation for each color channel in the dataset
+
+    Parameters
+    ----------
+    im_dir : string
+        Path to tracking dataset data folders
+
+    Returns
+    -------
+    mean : torch tensor [3]
+        average value for each color channel in the dataset
+    std : torch tensor [3]
+        standard deviation for each color channel in the images of the dataset
+
+    """
+    dir_list = next(os.walk(im_dir))[1]
+    track_list = [os.path.join(im_dir,item) for item in dir_list]
+    
+    color_avgs = []
+    
+    for track in track_list:
+        frames = [os.path.join(track,item) for item in os.listdir(track)]
+        for frame in frames:
+            im = Image.open(frame)
+            
+            im = F.to_tensor(im)
+            mean = im.mean(dim = 1).mean(dim = 1)
+            color_avgs.append(mean)
+    
+    color_avgs = torch.stack(color_avgs)
+    mean = color_avgs.mean(dim = 0)
+    std = color_avgs.std(dim = 0)
+    
+    return mean, std
+
 class Localization_Dataset(data.Dataset):
     """
     Creates an object for referencing the KITTI object tracking dataset (training set)
@@ -64,19 +101,19 @@ class Localization_Dataset(data.Dataset):
                     transforms.ColorJitter(brightness = 0.3,contrast = 0.3,saturation = 0.2)
                         ]),
                 transforms.ToTensor(),
-                transforms.RandomErasing(p=0.1, scale=(0.02, 0.2), ratio=(0.1, 5.3), value=(0.485,0.456,0.406)),
-                transforms.RandomErasing(p=0.5, scale=(0.02, 0.1), ratio=(0.3, 2.3), value=(0.485,0.456,0.406)),
-                transforms.RandomErasing(p=0.3, scale=(0.02, 0.25), ratio=(0.3, 3.3), value=(0.485,0.456,0.406)),
-                transforms.RandomErasing(p=0.1, scale=(0.02, 0.35), ratio=(0.3, 3.3), value=(0.485,0.456,0.406)),
-                transforms.RandomErasing(p=0.05, scale=(0.02, 0.6), ratio=(0.3, 3.3), value=(0.485,0.456,0.406)),
+                transforms.RandomErasing(p=0.1, scale=(0.02, 0.2), ratio=(0.1, 5.3), value=(0.3721, 0.3880, 0.3763)),
+                transforms.RandomErasing(p=0.5, scale=(0.02, 0.1), ratio=(0.3, 2.3), value=(0.3721, 0.3880, 0.3763)),
+                transforms.RandomErasing(p=0.3, scale=(0.02, 0.25), ratio=(0.3, 3.3), value=(0.3721, 0.3880, 0.3763)),
+                transforms.RandomErasing(p=0.1, scale=(0.02, 0.35), ratio=(0.3, 3.3), value=(0.3721, 0.3880, 0.3763)),
+                transforms.RandomErasing(p=0.05, scale=(0.02, 0.6), ratio=(0.3, 3.3), value=(0.3721, 0.3880, 0.3763)),
 
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
+                transforms.Normalize(mean=[0.3721, 0.3880, 0.3763],
+                                 std=[0.0555, 0.0584, 0.0658])
                 ])
 
         # for denormalizing
-        self.denorm = transforms.Normalize(mean = [-0.485/0.229, -0.456/0.224, -0.406/0.225],
-                                           std = [1/0.229, 1/0.224, 1/0.225])
+        self.denorm = transforms.Normalize(mean = [-0.3721/0.0555, -0.3880/0.0584, -0.3763/0.0658],
+                                           std = [1/0.0555, 1/0.0584, 1/0.0658])
         
         self.class_dict = {
              'DontCare':8,
@@ -121,7 +158,7 @@ class Localization_Dataset(data.Dataset):
                             if obj['class'] not in ['DontCare', 'Pedestrian','Cyclist']:
                                 bbox = obj['bbox2d']
                                 if bbox[2]-bbox[0] > 1 and bbox[3] - bbox[1] > 1: #verify not too small such that it will throw an error
-                                    self.all_data.append([frames[j],obj,calib])
+                                    self.all_data.append([frames[j],obj,calib,labels[j]])
                     
     def __len__(self):
         """ return number of objects"""
@@ -196,21 +233,30 @@ class Localization_Dataset(data.Dataset):
         
     
     def __getitem__(self,index):
-        """ returns item indexed from all frames in all tracks from training
-        or testing indices depending on mode
+        """ returns item indexed from all frames in all tracks from data
+        
+        Data Characterization:
+            - It is assumed that the bounding box for the object of interest will be roughly correct, and should be expanded by 2x
+            Thus, an expansion of between 1.5 and 2.5 will be used
+            - A uniform random distribution of object shift will be used to avoid bias
+            - If desired, all other objects will be masked 
         """
+        
     
         # load image and get label        
         cur = self.all_data[index]
-        im = Image.open(cur[0])
-        label = cur[1]
+        im = Image.open(cur[0]) # image
+        label = cur[1] # bounding box etc for object of interest
+        others = cur[3] # the other object bboxes besides object of interest
         
-        # crop image so that only relevant portion is showing for one object
+        
+        
         # copy so that original coordinates aren't overwritten
         bbox = label["bbox2d"].copy()
         
-        bbox_width = bbox[2] - bbox[0]
-                
+        bbox_width  = bbox[2] - bbox[0]
+        bbox_height = bbox[3] - bbox[1]
+        
         # flip sometimes
         if np.random.rand() > 0.5:
             im= F.hflip(im)
@@ -218,28 +264,29 @@ class Localization_Dataset(data.Dataset):
             bbox[[2,0]] = im.size[0] - bbox[[0,2]]
         
         # randomly shift the center of the crop
-        shift_scale = 90
-        x_shift = np.random.normal(0,im.size[0]/shift_scale)
-        y_shift = np.random.normal(0,im.size[1]/shift_scale)
+        shift_scale = 80
+        x_shift = np.random.uniform(-im.size[0]/shift_scale,im.size[0]/shift_scale)
+        y_shift = np.random.normal(-im.size[1]/shift_scale,im.size[1]/shift_scale)
         
         # temp for troubleshooting
         # x_shift = 0
         # y_shift = 0
         
-        #buffer  = 0#min(bbox[2]-bbox[0],bbox[3]-bbox[1])/3# max(-5,np.random.normal(70,im.size[1]/shift_scale))
-        bufferx = max(0,np.random.normal(bbox_width/4.0,10))
-        buffery = max(0,bufferx*(np.random.rand()+0.5))
+        # randomly expand the box between 1.25 and 2.75x, again using uniform dist
+        bufferx = np.random.uniform(bbox_width*0.125,bbox_width*0.875)
+        buffery = np.random.uniform(bbox_height*0.125,bbox_height*0.875)
         
         # temp for troubleshooting
         # bufferx = 200 
         # buffery = 200
         
-        # note may have indexed these wrongly
+        # corners of the cropped image are defined relative to the bbox
         minx = max(0,bbox[0]-bufferx)
         miny = max(0,bbox[1]-buffery)
         maxx = min(im.size[0],bbox[2]+bufferx)
         maxy = min(im.size[1],bbox[3]+buffery)
-    
+        
+        # the crop is shifted so it is no longer centered on the bbox
         minx = minx + x_shift
         maxx = maxx + x_shift
         miny = miny + y_shift
@@ -262,17 +309,19 @@ class Localization_Dataset(data.Dataset):
             print(bufferx,buffery)
             print(x_shift,y_shift)
             print(label['bbox2d'])
-            #raise Exception
+            raise Exception
         
-            
+        # shift bbox            
         bbox[0] = bbox[0] - minx
         bbox[1] = bbox[1] - miny
         bbox[2] = bbox[2] - minx
         bbox[3] = bbox[3] - miny
-         
+        
+        # resize image
         orig_size = im_crop.size
         im_crop = F.resize(im_crop, (224,224))
         
+        # scale bbox
         bbox[0] = bbox[0] * 224/orig_size[0]
         bbox[2] = bbox[2] * 224/orig_size[0]
         bbox[1] = bbox[1] * 224/orig_size[1]
@@ -296,8 +345,14 @@ class Localization_Dataset(data.Dataset):
             SHOW_LABELS - if True, labels are plotted on sequence
             track_idx - int    
         """
-        mean = np.array([0.485, 0.456, 0.406])
-        stddev = np.array([0.229, 0.224, 0.225])
+        
+        # detrac 
+        # mean = np.array([0.485, 0.456, 0.406])
+        # stddev = np.array([0.229, 0.224, 0.225])
+        
+        # KITTI
+        mean = np.array([0.3721,0.3880,0.3763])
+        stddev = np.array([0.0555, 0.0584, 0.0658])
         
         im,label = self[index]
         
@@ -504,13 +559,18 @@ if __name__ == "__main__":
 #    train_lab_dir =   "C:\\Users\\derek\\Desktop\\KITTI\\Tracking\\Labels\\training\\label_02"
 #    train_calib_dir = "C:\\Users\\derek\\Desktop\\KITTI\\Tracking\\data_tracking_calib(1)\\training\\calib"
     
-    train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
-    train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
-    train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
+    # worklab GTX 1080 workstation
+    # train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
+    # train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
+    # train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
+    
+    ## worklab Quadro workstation
+    train_im_dir =    "/home/worklab/Data/cv/KITTI/data_tracking_image_2/training/image_02" 
+    train_lab_dir =   "/home/worklab/Data/cv/KITTI/data_tracking_label_2/training/label_02"
+    train_calib_dir = "/home/worklab/Data/cv/KITTI/data_tracking_calib/training/calib"
     
     test = Localization_Dataset(train_im_dir,train_lab_dir,train_calib_dir)
     # test.load_track(10)
-    
     
     
     # im,label = next(test)
@@ -535,8 +595,9 @@ if __name__ == "__main__":
     
         
     # cv2.destroyAllWindows()
-    
-    for i in range(100):
+    #mean,std = get_dataset_mean_stdev(train_im_dir)
+        
+    for i in range(10):
         test.show(np.random.randint(0,len(test)))
     
     

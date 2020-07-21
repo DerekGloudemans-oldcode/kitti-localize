@@ -189,7 +189,6 @@ def train_model(model, optimizer, scheduler,losses,
                     with torch.set_grad_enabled(phase == 'train'):
                         cls_out,reg_out = model(inputs)
                         
-                        loss = 0
                         each_loss = []
                         # apply each reg loss function
                         # normalize targets
@@ -227,22 +226,10 @@ def train_model(model, optimizer, scheduler,losses,
                     total_loss += sum(each_loss) #loss.item()
                     if count % 100 == 0:
                         print("{} epoch {} batch {} -- Loss so far: {:03f} -- {}".format(phase,epoch,count,total_loss/count,[item for item in each_loss]))
-                    if count % 5000 == 0:
+                    if count % 2000 == 0:
                         plot_batch(model,next(iter(dataloaders['train'])),class_dict)
                     
-                    # periodically save best checkpoint
-                    if count % 5000 == 0:
-                        avg_loss = total_loss/count
-                        if avg_loss < best_loss:
-                            # save a checkpoint
-                            PATH = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet34_epoch{}_batch{}.pt".format(epoch,count)
-                            torch.save({
-                                'epoch': epoch,
-                                'model_state_dict': model.state_dict(),
-                                'optimizer_state_dict': optimizer.state_dict(),
-                                "metrics": all_metrics
-                                }, PATH)
-                            
+                
             # report and record metrics at end of epoch
             avg_acc = total_acc/count
             avg_loss = total_loss/count
@@ -254,8 +241,9 @@ def train_model(model, optimizer, scheduler,losses,
                 all_metrics["{}_loss".format(phase)].append(total_loss)
                 all_metrics["{}_acc".format(phase)].append(avg_acc)
 
+                # save a checkpoint
                 if avg_loss < best_loss:
-                    # save a checkpoint
+                    model.to(torch.device("cpu"))
                     PATH = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet34_epoch{}_end.pt".format(epoch)
                     torch.save({
                         'epoch': epoch,
@@ -263,19 +251,13 @@ def train_model(model, optimizer, scheduler,losses,
                         'optimizer_state_dict': optimizer.state_dict(),
                         "metrics": all_metrics
                         }, PATH)
-                
+                    model.to(device)
                 torch.cuda.empty_cache()
                 
-            # stop training when there is no further improvement
-            if avg_loss < best_loss:
-                epochs_since_improvement = 0
-                best_loss = avg_loss
-            else:
-                epochs_since_improvement +=1
+
             
             print("{} epochs since last improvement.".format(epochs_since_improvement))
-            # if epochs_since_improvement >= patience:
-            #     break
+
                 
         return model , all_metrics
 
@@ -448,36 +430,28 @@ if __name__ == "__main__":
     #checkpoint_file =  "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet34_epoch18_save1.pt"
     #checkpoint_file = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet50_epoch19_save.pt"
     checkpoint_file = None
-    checkpoint_file = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet34_epoch137_save.pt"
+    #checkpoint_file = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet34_epoch137_save.pt"
     patience = 4
 
-    train_image_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
-    train_label_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
-    train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
+    # worklab GTX 1080 workstation
+    # train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
+    # train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
+    # train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
     
-    #label_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\DETRAC-Train-Annotations-XML-v3"
-    #train_image_dir = "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
-    #test_image_dir =  "C:\\Users\\derek\\Desktop\\UA Detrac\\Tracks"
+    ## worklab Quadro workstation
+    train_im_dir =    "/home/worklab/Data/cv/KITTI/data_tracking_image_2/training/image_02" 
+    train_lab_dir =   "/home/worklab/Data/cv/KITTI/data_tracking_label_2/training/label_02"
+    train_calib_dir = "/home/worklab/Data/cv/KITTI/data_tracking_calib/training/calib"
     
     # 1. CUDA for PyTorch
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if use_cuda else "cpu")
     if torch.cuda.device_count() > 1:
-        print("Using multiple GPUs")
+        print("Using {} GPUs".format(torch.cuda.device_count()))
         MULTI = True
     else:
         MULTI = False
     torch.cuda.empty_cache()   
-    
-    # 2. load model
-    try:
-        model
-    except:
-        model = ResNet_Localizer()
-        if MULTI:
-            model = nn.DataParallel(model,device_ids = [0,1])
-    model = model.to(device)
-    print("Loaded model.")
     
     
     # 3. create training params
@@ -495,8 +469,8 @@ if __name__ == "__main__":
         detrac_ims = "/home/worklab/Desktop/detrac/DETRAC-all-data"
         detrac_labels = "/home/worklab/Desktop/detrac/DETRAC-Train-Annotations-XML-v3"
         #train_data = Localize_Dataset(detrac_ims,detrac_labels)
-        train_data = Localization_Dataset(train_image_dir, train_label_dir,train_calib_dir)
-        test_data =  Localization_Dataset(train_image_dir,train_label_dir,train_calib_dir,data_holdout = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17])
+        train_data = Localization_Dataset(train_im_dir, train_lab_dir,train_calib_dir)
+        test_data =  Localization_Dataset(train_im_dir,train_lab_dir,train_calib_dir,data_holdout = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17])
         
     trainloader = data.DataLoader(train_data, **params)
     testloader = data.DataLoader(test_data, **params)
@@ -506,8 +480,14 @@ if __name__ == "__main__":
     datasizes = {"train": len(train_data), "val": len(test_data)}
     print("Got dataloaders. {},{}".format(datasizes['train'],datasizes['val']))
     
+    # get model
+    try:
+        model
+    except:
+        model = ResNet_Localizer()
+    
     # 5. define stochastic gradient descent optimizer    
-    optimizer = optim.SGD(model.parameters(), lr=0.001,momentum = 0.3)
+    optimizer = optim.SGD(model.parameters(), lr=0.001,momentum = 0.9)
     
     # 6. decay LR by a factor of 0.1 every 7 epochs
     #exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.3)
@@ -522,17 +502,24 @@ if __name__ == "__main__":
         model,optimizer,start_epoch,all_metrics = load_model(checkpoint_file, model, optimizer)
         #model,_,start_epoch = load_model(checkpoint_file, model, optimizer) # optimizer restarts from scratch
         print("Checkpoint loaded.")
-     
-    # 9. define losses
-    losses = {"cls": [nn.CrossEntropyLoss()],
-              "reg": [nn.MSELoss(), Box_Loss(),]
-              }
+    # 2. load model
     
-    # losses = {"cls": [],
-    #           "reg": [Box_Loss()]
+    # move to multiple GPUs if possible
+    if MULTI:
+            model = nn.DataParallel(model,device_ids = [0,1])
+    model = model.to(device)
+    print("Loaded model.")
+    
+    # 9. define losses
+    # losses = {"cls": [nn.CrossEntropyLoss()],
+    #           "reg": [nn.MSELoss(), Box_Loss(),]
     #           }
     
-    if False:    
+    losses = {"cls": [],
+              "reg": [nn.MSELoss(),Box_Loss()]
+              }
+    
+    if True:    
     # train model
         print("Beginning training.")
         model,all_metrics = train_model(model,
@@ -550,7 +537,7 @@ if __name__ == "__main__":
     
     
     
-    if True:
+    if False:
         model.eval()
         error_list = []
         acc_list = []
