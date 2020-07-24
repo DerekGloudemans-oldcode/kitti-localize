@@ -63,6 +63,8 @@ class Track_Dataset(data.Dataset):
         # final data storage list
         self.all_data = []
         self.all_labels = []
+        self.frame_objs = {}
+        
         # separate each object into its own data point
         for i in range(0,len(self.track_list)):
             if i in data_holdout:
@@ -76,8 +78,9 @@ class Track_Dataset(data.Dataset):
                 
                 for j in range(0,len(frames)):
                     if len(labels[j]) > 0: # there is at least one object in this frame
+                        self.frame_objs[frames[j]] = []
                         for obj in labels[j]:
-                            if obj['class'] != 'DontCare':
+                            if obj['class'] not in ['Pedestrian', 'Cyclist', 'DontCare']:
                                 # add obj id to dictionary if this is the first frame its in
                                 # first list holds bboxes, second holds frames
                                 if obj["id"] not in objs:
@@ -93,6 +96,7 @@ class Track_Dataset(data.Dataset):
                                 
                                 objs[obj['id']][0].append(new_bbox)
                                 objs[obj['id']][1].append(frames[j])
+                                self.frame_objs[frames[j]].append(new_bbox)
                 
                 for key in objs:
                     obj = objs[key]
@@ -110,7 +114,12 @@ class Track_Dataset(data.Dataset):
             speeds = np.zeros(bboxes.shape)  
             speeds[:len(speeds)-1,:] = bboxes[1:,:] - bboxes[:len(bboxes)-1,:]
             speeds[-1,:] = speeds[-2,:]
+            #plt.figure()
+            #plt.plot(speeds[:,0])
             speeds = savgol_filter(speeds,5,2,axis = 0)
+            #plt.plot(speeds[:,0])
+            #plt.legend(["Unsmoothed","Smoothed"])
+            #plt.show()
             combined = np.concatenate((bboxes,speeds),axis = 1)
             with_speed.append(combined)
         self.all_labels = with_speed
@@ -266,9 +275,15 @@ if __name__ == "__main__":
 #    train_lab_dir =   "C:\\Users\\derek\\Desktop\\KITTI\\Tracking\\Labels\\training\\label_02"
 #    train_calib_dir = "C:\\Users\\derek\\Desktop\\KITTI\\Tracking\\data_tracking_calib(1)\\training\\calib"
     
-    train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
-    train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
-    train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
+    # worklab GTX 1080 workstation
+    # train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
+    # train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
+    # train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
+    
+    ## worklab Quadro workstation
+    train_im_dir =    "/home/worklab/Data/cv/KITTI/data_tracking_image_2/training/image_02" 
+    train_lab_dir =   "/home/worklab/Data/cv/KITTI/data_tracking_label_2/training/label_02"
+    train_calib_dir = "/home/worklab/Data/cv/KITTI/data_tracking_calib/training/calib"
     
     test = Track_Dataset(train_im_dir,train_lab_dir)
     # test.load_track(10)

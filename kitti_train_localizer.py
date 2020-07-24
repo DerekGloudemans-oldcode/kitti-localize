@@ -230,32 +230,36 @@ def train_model(model, optimizer, scheduler,losses,
                         plot_batch(model,next(iter(dataloaders['train'])),class_dict)
                     
                 
-            # report and record metrics at end of epoch
-            avg_acc = total_acc/count
-            avg_loss = total_loss/count
-            if epoch % 1 == 0:
+                # report and record metrics at end of epoch
+                avg_acc = total_acc/count
+                avg_loss = total_loss/count
+                if epoch % 1 == 0:
                 
-                plot_batch(model,next(iter(dataloaders['train'])),class_dict)
-                
-                print("Epoch {} avg {} loss: {:05f}  acc: {}".format(epoch, phase,avg_loss,avg_acc))
-                all_metrics["{}_loss".format(phase)].append(total_loss)
-                all_metrics["{}_acc".format(phase)].append(avg_acc)
+                    plot_batch(model,next(iter(dataloaders['train'])),class_dict)
+                    
+                    print("Epoch {} avg {} loss: {:05f}  acc: {}".format(epoch, phase,avg_loss,avg_acc))
+                    all_metrics["{}_loss".format(phase)].append(total_loss)
+                    all_metrics["{}_acc".format(phase)].append(avg_acc)
 
-                # save a checkpoint
-                if avg_loss < best_loss:
-                    model.to(torch.device("cpu"))
-                    PATH = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet34_epoch{}_end.pt".format(epoch)
-                    torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        "metrics": all_metrics
-                        }, PATH)
-                    model.to(device)
-                torch.cuda.empty_cache()
-                
-
+            # save a checkpoint
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                epochs_since_improvement = 0
+                model.to(torch.device("cpu"))
+                PATH = "/home/worklab/Data/cv/checkpoints/kitti_resnet34_epoch{}.pt".format(epoch)
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    "metrics": all_metrics
+                    }, PATH)
+                model.to(device)
             
+            
+            else:
+                epochs_since_improvement += 1
+                
+                torch.cuda.empty_cache()
             print("{} epochs since last improvement.".format(epochs_since_improvement))
 
                 
@@ -429,8 +433,8 @@ if __name__ == "__main__":
     #checkpoint_file = "/home/worklab/Desktop/checkpoints/detrac_localizer_retrain3/resnet18_epoch20_end.pt"
     #checkpoint_file =  "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet34_epoch18_save1.pt"
     #checkpoint_file = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet50_epoch19_save.pt"
-    checkpoint_file = None
-    #checkpoint_file = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/resnet34_epoch137_save.pt"
+    #checkpoint_file = "/home/worklab/Data/cv/checkpoints/cpu_resnet34_epoch18.pt"
+    checkpoint_file = "/home/worklab/Data/cv/checkpoints/kitti_resnet34_epoch70.pt"
     patience = 4
 
     # worklab GTX 1080 workstation
@@ -466,8 +470,8 @@ if __name__ == "__main__":
         len(train_data)
         len(test_data)
     except:
-        detrac_ims = "/home/worklab/Desktop/detrac/DETRAC-all-data"
-        detrac_labels = "/home/worklab/Desktop/detrac/DETRAC-Train-Annotations-XML-v3"
+        # detrac_ims = "/home/worklab/Desktop/detrac/DETRAC-all-data"
+        # detrac_labels = "/home/worklab/Desktop/detrac/DETRAC-Train-Annotations-XML-v3"
         #train_data = Localize_Dataset(detrac_ims,detrac_labels)
         train_data = Localization_Dataset(train_im_dir, train_lab_dir,train_calib_dir)
         test_data =  Localization_Dataset(train_im_dir,train_lab_dir,train_calib_dir,data_holdout = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17])
@@ -485,30 +489,27 @@ if __name__ == "__main__":
         model
     except:
         model = ResNet_Localizer()
-    
+        
     # 5. define stochastic gradient descent optimizer    
     optimizer = optim.SGD(model.parameters(), lr=0.001,momentum = 0.9)
-    
-    # 6. decay LR by a factor of 0.1 every 7 epochs
-    #exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.3)
-    exp_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode = "min", factor = 0.3,patience = patience,verbose = True) 
     
     # 7. define start epoch for consistent labeling if checkpoint is reloaded
     start_epoch = -1
     all_metrics = None
+    
+    # move to multiple GPUs if possible
+    if MULTI:
+            model = nn.DataParallel(model,device_ids = [0,1,2,3])
+    model = model.to(device)
+    print("Loaded model.")
 
     # 8. if checkpoint specified, load model and optimizer weights from checkpoint
     if checkpoint_file != None:
-        model,optimizer,start_epoch,all_metrics = load_model(checkpoint_file, model, optimizer)
+        model,_,start_epoch,all_metrics = load_model(checkpoint_file, model, optimizer)
         #model,_,start_epoch = load_model(checkpoint_file, model, optimizer) # optimizer restarts from scratch
         print("Checkpoint loaded.")
     # 2. load model
     
-    # move to multiple GPUs if possible
-    if MULTI:
-            model = nn.DataParallel(model,device_ids = [0,1])
-    model = model.to(device)
-    print("Loaded model.")
     
     # 9. define losses
     # losses = {"cls": [nn.CrossEntropyLoss()],
@@ -518,6 +519,14 @@ if __name__ == "__main__":
     losses = {"cls": [],
               "reg": [nn.MSELoss(),Box_Loss()]
               }
+    
+    
+    # 5. define stochastic gradient descent optimizer    
+    optimizer = optim.SGD(model.parameters(), lr=0.001,momentum = 0.9)
+    
+    # 6. decay LR by a factor of 0.1 every 7 epochs
+    #exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.3)
+    exp_lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode = "min", factor = 0.3,patience = patience,verbose = True) 
     
     if True:    
     # train model
@@ -534,8 +543,7 @@ if __name__ == "__main__":
         
     
     
-    
-    
+    #plot_batch(model,next(iter(testloader)),class_dict)
     
     if False:
         model.eval()

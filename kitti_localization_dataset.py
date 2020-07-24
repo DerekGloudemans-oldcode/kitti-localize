@@ -264,7 +264,7 @@ class Localization_Dataset(data.Dataset):
             bbox[[2,0]] = im.size[0] - bbox[[0,2]]
         
         # randomly shift the center of the crop
-        shift_scale = 80
+        shift_scale = 70
         x_shift = np.random.uniform(-im.size[0]/shift_scale,im.size[0]/shift_scale)
         y_shift = np.random.normal(-im.size[1]/shift_scale,im.size[1]/shift_scale)
         
@@ -273,8 +273,10 @@ class Localization_Dataset(data.Dataset):
         # y_shift = 0
         
         # randomly expand the box between 1.25 and 2.75x, again using uniform dist
-        bufferx = np.random.uniform(bbox_width*0.125,bbox_width*0.875)
-        buffery = np.random.uniform(bbox_height*0.125,bbox_height*0.875)
+        # bufferx = np.random.uniform(bbox_width*0.125,bbox_width*0.875)
+        # buffery = np.random.uniform(bbox_height*0.125,bbox_height*0.875)
+        bufferx = np.random.uniform(-bbox_width*0.25,bbox_width*0.25)
+        buffery = np.random.uniform(-bbox_height*0.25,bbox_height*0.25)
         
         # temp for troubleshooting
         # bufferx = 200 

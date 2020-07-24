@@ -28,6 +28,7 @@ from torchvision.transforms import functional as F
 from torchvision.ops import roi_align
 
 from kitti_train_localizer import ResNet_Localizer, load_model, class_dict, plot_batch
+plt.style.use("seaborn")
 
 # need to make the set of matrices that are optimized over variable
 # need to make variable rollout and pre-rollout lengths
@@ -123,7 +124,7 @@ def score_tracker(tracker,batch,n_pre,n_post):
     tracker : Torch_KF object
         a Kalman Filter tracker
     batch : Float Tensor - [batch_size,(n_pre + n_post),4] 
-        bounding boxes for several objects for several frames
+        bounding boxes for several objects  for several frames
     n_pre : int
         number of frames used to initially update the tracker
     n_post : int
@@ -135,32 +136,90 @@ def score_tracker(tracker,batch,n_pre,n_post):
     """
     obj_ids = [i for i in range(len(batch))]
     
-    tracker.add(batch[:,0,:8],obj_ids)
+    # don't want to always use first frame in track to initialize, so randomly pick an index
+    first = np.random.randint(0,batch.shape[1]-2)
     
-    for frame in range(1,n_pre):
-        tracker.predict()
-        tracker.update(batch[:,frame,:4],obj_ids)
-    
+    tracker.add(batch[:,first,:8],obj_ids)
+        
     running_mean_iou = 0
-    for frame in range(n_pre,n_pre+n_post):
-        # roll out a frame
-        tracker.predict()
-        
-        # get predicted object locations
-        objs = tracker.objs()
-        objs = [objs[key] for key in objs]
-        pred = torch.from_numpy(np.array(objs)).double()[:,:4]
-        
-        
-        # evaluate
-        val = iou(batch[:,frame,:4],pred)
-        #val = abs_err(batch[:,frame,:],pred)
-        running_mean_iou += val.item()
+    # roll out a frame
+    tracker.predict()
     
-    score = running_mean_iou / n_post
-    
+    # get predicted object locations
+    objs = tracker.objs()
+    objs = [objs[key] for key in objs]
+    pred = torch.from_numpy(np.array(objs)).double()[:,:4]
+        
+        
+    # evaluate
+    score = iou(batch[:,first+1,:4],pred)
+    #val = abs_err(batch[:,frame,:],pred)
+        
     return score
 
+
+def plot_states(ap_states,
+                ap_covs,
+                loc_meas,
+                apst_states,
+                apst_covs,
+                gts
+                ):
+    
+   
+    
+    #convert list into numpy array
+    ap_states =   torch.stack(ap_states)
+    ap_covs =     torch.stack(ap_covs)
+    loc_meas =    torch.stack(loc_meas)
+    apst_states = torch.stack(apst_states)
+    apst_covs =   torch.stack(apst_covs)
+    gts =         torch.stack(gts)
+    titles = ["X coordinate", "Y coordinate", "Scale", "Ratio", "X dot", "Y dot", "S dot", "R dot"]
+    
+    # format covariances - want each 
+    covs = torch.empty(ap_covs.shape[0]+apst_covs.shape[0],ap_covs.shape[1])
+    covs[1::2,:]  = ap_covs
+    covs[::2,:] = apst_covs
+    means = torch.empty(ap_states.shape[0]+apst_states.shape[0],ap_states.shape[1])
+    means[1::2,:] = ap_states
+    means[::2,:] = apst_states
+    
+    xvals = [i/2 for i in range(len(covs))]
+    ap_xvals = [i for i in range(1,len(ap_states)+1)]
+    
+    fig, axs = plt.subplots(int(len(gts[0]))//2,2,constrained_layout=True)
+    for i in range(len(gts[0])):
+        legend = ["apriori","aposteriori","true","covariance"]
+        
+        # plot apriori state
+        axs[i//2,i%2].plot(ap_xvals,ap_states[:,i],"--",linewidth = 3, color = (0.2,0.2,0.5))
+        
+        # plot measurement
+        if i in range(len(loc_meas[0])):
+            axs[i//2,i%2].plot(ap_xvals,loc_meas[:,i],".", markersize=15,color = (0.2,0.2,0.5))
+            legend = ["apriori","measurement","aposteriori","true","covariance"]
+        
+        else:
+            axs[i//2,i%2].set_ylim([-torch.max(gt[:,i])*2,torch.max(gt[:,i])*2])
+            
+        if i == 3 or i ==7:
+           axs[i//2,i%2].set_ylim([-3,3]) 
+        # plot aposteriori state
+        axs[i//2,i%2].plot(apst_states[:,i],"-", color = (0.1,0.1,0.5))
+        
+        # plot ground truth
+        axs[i//2,i%2].plot(gts[:,i],"-", color = (0.2,0.7,0.3))
+        
+        # plot covariance
+        axs[i//2,i%2].fill_between(xvals,means[:,i]-covs[:,i],covs[:,i]+means[:,i],color = (0.1,0.1,0.5,0.2))
+        
+        # set plot settings
+        axs[i//2,i%2].legend(legend)
+        axs[i//2,i%2].set_title(titles[i])
+        # axs[i//2,i%2].set_xlim([0,len(loc_meas)])
+        
+    plt.pause(10)
 
 ##############################################################################
     ##############################################################################
@@ -180,7 +239,7 @@ if __name__ == "__main__":
     
     b         = 50 # batch size
     n_pre     = 1      # number of frames used to initially tune tracker
-    n_post    = 5     # number of frame rollouts used to evaluate tracker
+    n_post    = 9     # number of frame rollouts used to evaluate tracker
     
     
     localizer = ResNet_Localizer()
@@ -189,7 +248,9 @@ if __name__ == "__main__":
     torch.cuda.empty_cache() 
         
     #resnet_checkpoint = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/cpu_resnet34_epoch137.pt"
-    resnet_checkpoint = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/cpu_resnet34_epoch18.pt"
+    #resnet_checkpoint = "/home/worklab/Desktop/checkpoints/kitti_localizer_34/cpu_resnet34_epoch18.pt"
+    resnet_checkpoint = "/home/worklab/Data/cv/checkpoints/cpu_kitti_resnet34_epoch70.pt"
+
     cp = torch.load(resnet_checkpoint)
     localizer.load_state_dict(cp['model_state_dict']) 
     localizer = localizer.to(device)
@@ -198,9 +259,15 @@ if __name__ == "__main__":
     try:
         loader
     except:
-        # initialize dataset
-        train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
-        train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
+        # worklab GTX 1080 workstation
+        # train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
+        # train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
+        # train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
+        
+        ## worklab Quadro workstation
+        train_im_dir =    "/home/worklab/Data/cv/KITTI/data_tracking_image_2/training/image_02" 
+        train_lab_dir =   "/home/worklab/Data/cv/KITTI/data_tracking_label_2/training/label_02"
+        train_calib_dir = "/home/worklab/Data/cv/KITTI/data_tracking_calib/training/calib"
         
         dataset = Track_Dataset(train_im_dir,train_lab_dir,n = (n_pre + n_post+1))
         
@@ -234,7 +301,7 @@ if __name__ == "__main__":
                kf_params["mu_Q"] = torch.zeros(8)
         
     # fit Q and mu_Q
-    if True:
+    if False:
         error_vectors = []
         scores = []
         for iteration in range(20000):
@@ -243,52 +310,35 @@ if __name__ == "__main__":
             batch, ims = next(iter(loader))
             
             # initialize tracker
-            tracker = Torch_KF("cpu",INIT = kf_params, ADD_MEAN_Q = True)
+            tracker = Torch_KF("cpu",INIT = kf_params, ADD_MEAN_Q = False)
         
             obj_ids = [i for i in range(len(batch))]
             
-            tracker.add(batch[:,0,:4],obj_ids)
+            # don't want to always use first frame in track to initialize, so randomly pick an index
+            first = np.random.randint(0,batch.shape[1]-2)
             
-            # for frame in range(1,n_pre):
-            #     tracker.predict()
-            #     tracker.update(batch[:,frame,:4],obj_ids)
+            tracker.add(batch[:,first,:8],obj_ids)
             
-            running_mean_iou = 0
-            for frame in range(n_pre,n_pre+1):
-                # roll out a frame
-                tracker.predict()
-                
-                # get predicted object locations
-                objs = tracker.objs()
-                objs = [objs[key] for key in objs]
-                pred = torch.from_numpy(np.array(objs)).double()
-                
-                
-                # evaluate
-                
-                # get ground truths
-                gt = batch[:,frame,:8]
-                # pos_prev = batch[:,frame-1,:]
-                # pos_next = batch[:,frame+1,:]
-                
-                # vel = ( (pos_next - pos) + (pos - pos_prev) ) / 2.0
-                # gt = torch.cat((pos, vel[:,:3]),dim = 1)
-                
-                
-                if False:
-                    pos2_prev = batch[:,frame-2,:]
-                    prev_vel = ( (pos-pos_prev) + (pos_prev - pos2_prev) ) / 2.0
-                    acc = (vel - prev_vel)[:,:2]
-                    gt = torch.cat((gt, acc),dim = 1)
-    
-                error = gt - pred
-                error = error.mean(dim = 0)
-                error_vectors.append(error)
-                scores.append(score_tracker(tracker,batch,n_pre,1))
-                
-                print("Finished iteration {}".format(iteration))
-        
-        error_vectors = torch.stack(error_vectors,dim = 0)
+            # roll out a frame
+            tracker.predict()
+            
+            # get predicted object locations
+            objs = tracker.objs()
+            objs = [objs[key] for key in objs]
+            pred = torch.from_numpy(np.array(objs)).double()
+            
+            # get ground truths
+            gt = batch[:,first+1,:8]
+            error = gt - pred
+            error_vectors.append(error)
+            
+            # get ious
+            scores.append(score_tracker(tracker,batch,n_pre,1))
+            
+            print("Finished iteration {}".format(iteration))
+            
+        # summary metrics    
+        error_vectors = torch.cat(error_vectors,dim = 0)
         mean = torch.mean(error_vectors, dim = 0)
         
         covariance = torch.zeros((8,8))
@@ -299,8 +349,8 @@ if __name__ == "__main__":
         kf_params["mu_Q"] = mean
         kf_params["Q"] = covariance
         
-        # with open("kitti_velocity8_Q.cpkl","wb") as f:
-        #       pickle.dump(kf_params,f)
+        with open("kitti_velocity8_Q.cpkl","wb") as f:
+              pickle.dump(kf_params,f)
         
         print("---------- Model 1-step errors ----------")
         print("Average 1-step IOU: {}".format(sum(scores)/len(scores)))
@@ -310,18 +360,18 @@ if __name__ == "__main__":
         
     # fit R and mu_R
     if False:
-        for ber in [2.3,2.4,2.5,2.6,2.7,2.8,2.9,3.0]: #[1.4,1.5,1.6,1.7,1.8,1.9,2,2.1,2.2]:
+        for ber in [2.2]:
             skewed_iou = []
             localizer_iou = []
             meas_errors = []
             
-            for iteration in range(200):
+            for iteration in range(500):
                 batch,ims = next(iter(loader))
                 frame_idx = 0
                 gt = batch[:,frame_idx,:4]
                 
                 # get starting error
-                degradation = np.array([2,2,4,0.01]) / 2 # should roughly equal localizer error covariance
+                degradation = np.array([2,2,4,0.01]) *0 # should roughly equal localizer error covariance
                 skew = np.random.normal(0,degradation,(len(batch),4))
                 gt_skew = gt + skew
                 skewed_iou.append(iou(gt_skew,gt))
@@ -332,11 +382,11 @@ if __name__ == "__main__":
                 # ims are collated by frame,then batch index
                 relevant_ims = ims[frame_idx]
                 frames =[]
-                for item in relevant_ims:
+                for idx,item in enumerate(relevant_ims):
                     with Image.open(item) as im:
                            im = F.to_tensor(im)
-                           frame = F.normalize(im,mean=[0.485, 0.456, 0.406],
-                                             std=[0.229, 0.224, 0.225])
+                           frame = F.normalize(im,mean=[0.3721, 0.3880, 0.3763],
+                                 std=[0.0555, 0.0584, 0.0658])
                            #correct smaller frames
                            if frame.shape[1] < 375:
                               new_frame = torch.zeros([3,375,frame.shape[2]])
@@ -346,7 +396,34 @@ if __name__ == "__main__":
                               new_frame = torch.zeros([3,375,1242])
                               new_frame[:,:,:frame.shape[2]] = frame
                               frame = new_frame   
-                              
+                           
+                           MASK = False 
+                           if MASK:
+                               
+                               other_objs = dataset.frame_objs[item]
+                               
+                               # create copy of frame
+                               frame_copy = frame.clone()
+                               
+                               # mask each other object in frame
+                               for obj in other_objs:
+                                   xmin = (obj[0] - obj[2] / 2.0).astype(int)
+                                   ymin = (obj[1] - obj[2]*obj[3] / 2.0).astype(int)
+                                   xmax = (obj[0] + obj[2] / 2.0).astype(int)
+                                   ymax = (obj[1] + obj[2]*obj[3] / 2.0).astype(int)
+                                   
+                                   frame[:,ymin:ymax,xmin:xmax] = 0
+                               
+                               # restore gt_skew pixels
+                               o = gt_skew[idx]
+                               xmin = (o[0] - o[2] / 2.0).int()
+                               ymin = (o[1] - o[2]*obj[3] / 2.0).int()
+                               xmax = (o[0] + o[2] / 2.0).int()
+                               ymax = (o[1] + o[2]*obj[3] / 2.0).int()
+                               #frame[:,ymin:ymax,xmin:xmax] = frame_copy[:,ymin:ymax,xmin:xmax]
+                               #plt.imshow(frame.transpose(2,0).transpose(0,1))
+                               #plt.pause(5)
+                                                                
                            frames.append(frame)
                 frames = torch.stack(frames).to(device)
                 
@@ -388,6 +465,54 @@ if __name__ == "__main__":
                 detections = (reg_out* 224*wer - 224*(wer-1)/2)
                 detections = detections.data.cpu()
                 
+                # plot outputs
+                if True and iteration % 100 == 0:
+                    batch_size = 32
+                    row_size = 8
+                    fig, axs = plt.subplots((batch_size+row_size-1)//row_size, row_size, constrained_layout=True)
+                
+                    for i in range(0,batch_size):
+                        
+                        # get image
+                        im   = crops[i].cpu().numpy().transpose((1,2,0))
+                        mean = np.array([0.485, 0.456, 0.406])
+                        std  = np.array([0.229, 0.224, 0.225])
+                        im   = std * im + mean
+                        im   = np.clip(im, 0, 1)
+                        
+                        bbox = detections[i]
+                        
+                        
+                        wer = 3
+                        imsize = 224
+                        
+                        # convert xysr to xyxy
+                        reg_true = torch.zeros([len(gt),4])
+                        reg_true[:,0] =  gt[:,0] - gt[:,2]/2.0
+                        reg_true[:,1] =  gt[:,1] - gt[:,2]*gt[:,3]/2.0
+                        reg_true[:,2] =  gt[:,0] + gt[:,2]/2.0
+                        reg_true[:,3] =  gt[:,1] + gt[:,2]*gt[:,3]/2.0
+                        
+                        reg_true[:,0] = reg_true[:,0] - new_boxes[:,1]
+                        reg_true[:,1] = reg_true[:,1] - new_boxes[:,2]
+                        reg_true[:,2] = reg_true[:,2] - new_boxes[:,1]
+                        reg_true[:,3] = reg_true[:,3] - new_boxes[:,2]
+                        reg = reg_true[i] * 224/box_scales[i]
+                        
+                        # plot pred bbox
+                        im = cv2.rectangle(im,(bbox[0],bbox[1]),(bbox[2],bbox[3]),(0.9,0.2,0.2),2)
+                       
+                        # plot ground truth bbox
+                        im = cv2.rectangle(im,(reg[0],reg[1]),(reg[2],reg[3]),(0.0,0.8,0.0),2)
+                
+                        im = im.get()
+                        
+                        axs[i//row_size,i%row_size].imshow(im)
+                        axs[i//row_size,i%row_size].set_xticks([])
+                        axs[i//row_size,i%row_size].set_yticks([])
+                        plt.pause(.001)    
+                    plt.close()
+                
                 # add in original box offsets and scale outputs by original box scales
                 detections[:,0] = detections[:,0]*box_scales/224 + new_boxes[:,1]
                 detections[:,2] = detections[:,2]*box_scales/224 + new_boxes[:,1]
@@ -401,6 +526,10 @@ if __name__ == "__main__":
                 output[:,2] = (detections[:,2] - detections[:,0])
                 output[:,3] = (detections[:,3] - detections[:,1]) / output[:,2]
                 pred = torch.from_numpy(output)
+                
+                
+                
+                
                 
                 # evaluate localizer
                 localizer_iou.append(iou(pred,gt))
@@ -432,8 +561,8 @@ if __name__ == "__main__":
        
         
         
-        with open("kitti_velocity8_R.cpkl",'wb') as f:
-               pickle.dump(kf_params,f)
+        with open("kitti_velocity8_QR.cpkl",'wb') as f:
+                pickle.dump(kf_params,f)
         
         
         
@@ -442,8 +571,9 @@ if __name__ == "__main__":
         
         
 ###########################################################################################################################################################################        
+
         
-    if False:
+    if True:
         with open("kitti_velocity8_QR.cpkl","rb") as f:
               kf_params = pickle.load(f)        
               kf_params["P"][[0,1,2,3],[0,1,2,3]] = torch.from_numpy(np.array([1,1,2,0.2])).float()
@@ -462,7 +592,7 @@ if __name__ == "__main__":
         model_errors = []
         meas_errors = []
         
-        degradation = np.array([2,2,4,0.01]) / 10 # should roughly equal localizer error covariance
+        degradation = np.array([2,2,4,0.01]) *0 # should roughly equal localizer error covariance
         
         for iteration in range(50):
             
@@ -473,7 +603,19 @@ if __name__ == "__main__":
         
             obj_ids = [i for i in range(len(batch))]
             
-            tracker.add(batch[:,0,:8],obj_ids)
+            tracker.add(batch[:,0,:4],obj_ids)
+            
+            # initialize storage
+            ap_states = []
+            ap_covs = []
+            loc_meas = []
+            apst_states = []
+            apst_covs = []
+            gts = []
+            
+            apst_states.append(tracker.X[0])
+            apst_covs.append(torch.diag(tracker.P[0]))
+            gts.append(batch[0,n_pre-1,:])
             
             # initialize tracker
             for frame in range(1,n_pre):
@@ -494,9 +636,10 @@ if __name__ == "__main__":
             starting = torch.from_numpy(np.array(objs)).double()
             starting_iou.append(iou(starting,batch[:,n_pre-1,:]))
             
+            
             for frame_idx in range(n_pre,n_pre + n_post):
                 gt = batch[:,frame_idx,:]
-            
+        
                 # get a priori error
                 tracker.predict()
                 objs = tracker.objs()
@@ -504,6 +647,9 @@ if __name__ == "__main__":
                 a_priori = torch.from_numpy(np.array(objs)).double()
                 a_priori_iou[frame_idx].append(iou(a_priori,gt))
             
+                ap_states.append(tracker.X[0])
+                ap_covs.append(torch.diag(tracker.P[0]))
+
                 # at this point, we have gt, the correct bounding boxes for this frame, 
                 # and the tracker states, the estimate of the state for this frame
                 # expand state estimate and get localizer prediction
@@ -587,6 +733,8 @@ if __name__ == "__main__":
                 error = (gt[:,:4]-pred)
                 meas_errors.append(error)
                 
+                loc_meas.append(pred[0])
+                
                 # evaluate a posteriori estimate
                 tracker.update(pred,obj_ids)
                 objs = tracker.objs()
@@ -594,7 +742,20 @@ if __name__ == "__main__":
                 a_posteriori = torch.from_numpy(np.array(objs)).double()
                 a_posteriori_iou[frame_idx].append(iou(a_posteriori,gt))
                 
+                apst_states.append(tracker.X[0])
+                apst_covs.append(torch.diag(tracker.P[0]))
+                
+                gts.append(gt[0])
             
+            if True:
+                plot_states(ap_states,
+                            ap_covs,
+                            loc_meas,
+                            apst_states,
+                            apst_covs,
+                            gts)
+                break
+                
             if iteration % 50 == 0:
                 print("Finished iteration {}".format(iteration))
             
