@@ -163,7 +163,8 @@ def plot_states(ap_states,
                 loc_meas,
                 apst_states,
                 apst_covs,
-                gts
+                gts,
+                save_num = None
                 ):
     
    
@@ -188,38 +189,45 @@ def plot_states(ap_states,
     xvals = [i/2 for i in range(len(covs))]
     ap_xvals = [i for i in range(1,len(ap_states)+1)]
     
-    fig, axs = plt.subplots(int(len(gts[0]))//2,2,constrained_layout=True)
+    fig, axs = plt.subplots(int(len(gts[0]))//2,2,constrained_layout=True,figsize = (20,20))
+    
     for i in range(len(gts[0])):
         legend = ["apriori","aposteriori","true","covariance"]
         
         # plot apriori state
-        axs[i//2,i%2].plot(ap_xvals,ap_states[:,i],"--",linewidth = 3, color = (0.2,0.2,0.5))
+        axs[i//2,i%2].plot(ap_xvals,ap_states[:,i],"--",linewidth = 3, color = (0.3,0.2,0.5))
         
         # plot measurement
         if i in range(len(loc_meas[0])):
-            axs[i//2,i%2].plot(ap_xvals,loc_meas[:,i],".", markersize=15,color = (0.2,0.2,0.5))
+            axs[i//2,i%2].plot(ap_xvals,loc_meas[:,i],".", markersize=15,color = (0.3,0.2,0.5))
             legend = ["apriori","measurement","aposteriori","true","covariance"]
         
-        else:
-            axs[i//2,i%2].set_ylim([-torch.max(gt[:,i])*2,torch.max(gt[:,i])*2])
+        if i == 6:
+            axs[i//2,i%2].set_ylim([-30,30])
             
-        if i == 3 or i ==7:
-           axs[i//2,i%2].set_ylim([-3,3]) 
+        if i == 3:
+           axs[i//2,i%2].set_ylim([0,2]) 
+        
+        if i == 7:
+             axs[i//2,i%2].set_ylim([-0.3,0.3]) 
+             
         # plot aposteriori state
-        axs[i//2,i%2].plot(apst_states[:,i],"-", color = (0.1,0.1,0.5))
+        axs[i//2,i%2].plot(apst_states[:,i],"-", color = (0.4,0.1,0.5))
         
         # plot ground truth
         axs[i//2,i%2].plot(gts[:,i],"-", color = (0.2,0.7,0.3))
         
         # plot covariance
-        axs[i//2,i%2].fill_between(xvals,means[:,i]-covs[:,i],covs[:,i]+means[:,i],color = (0.1,0.1,0.5,0.2))
+        axs[i//2,i%2].fill_between(xvals,means[:,i]-covs[:,i],covs[:,i]+means[:,i],color = (0.4,0.1,0.5,0.2))
         
         # set plot settings
         axs[i//2,i%2].legend(legend)
         axs[i//2,i%2].set_title(titles[i])
         # axs[i//2,i%2].set_xlim([0,len(loc_meas)])
         
-    plt.pause(10)
+    plt.pause(3)
+    if save_num is not None:
+        plt.savefig("states_{}.png".format(save_num))
 
 ##############################################################################
     ##############################################################################
@@ -239,7 +247,7 @@ if __name__ == "__main__":
     
     b         = 50 # batch size
     n_pre     = 1      # number of frames used to initially tune tracker
-    n_post    = 9     # number of frame rollouts used to evaluate tracker
+    n_post    = 15     # number of frame rollouts used to evaluate tracker
     
     
     localizer = ResNet_Localizer()
@@ -282,19 +290,19 @@ if __name__ == "__main__":
         loader = DataLoader(dataset, **params)
     
     
-    # # create initial values for each matrix starting with unfit params
-    tracker = Torch_KF("cpu",INIT = None)
-    kf_params = {
-            "P":tracker.P0.squeeze(0),
-            "Q":tracker.Q.squeeze(0),
-            "R":tracker.R.squeeze(0),
-            "F":tracker.F,
-            "H":tracker.H,
-            "mu_Q":tracker.mu_Q,
-            "mu_R":tracker.mu_R,
-            "mu_R2":tracker.mu_R2,
-            "R2":tracker.R2
-            }
+    # # # create initial values for each matrix starting with unfit params
+    # tracker = Torch_KF("cpu",INIT = None)
+    # kf_params = {
+    #         "P":tracker.P0.squeeze(0),
+    #         "Q":tracker.Q.squeeze(0),
+    #         "R":tracker.R.squeeze(0),
+    #         "F":tracker.F,
+    #         "H":tracker.H,
+    #         "mu_Q":tracker.mu_Q,
+    #         "mu_R":tracker.mu_R,
+    #         "mu_R2":tracker.mu_R2,
+    #         "R2":tracker.R2
+    #         }
         
     with open("kitti_velocity8_unfitted.cpkl","rb") as f:
                kf_params = pickle.load(f)
@@ -345,11 +353,11 @@ if __name__ == "__main__":
         for vec in error_vectors:
             covariance += torch.mm((vec - mean).unsqueeze(1), (vec-mean).unsqueeze(1).transpose(0,1))
         
-        covariance = covariance / iteration
+        covariance = covariance / error_vectors.shape[0]
         kf_params["mu_Q"] = mean
         kf_params["Q"] = covariance
         
-        with open("kitti_velocity8_Q.cpkl","wb") as f:
+        with open("kitti_velocity8_Q2.cpkl","wb") as f:
               pickle.dump(kf_params,f)
         
         print("---------- Model 1-step errors ----------")
@@ -360,6 +368,10 @@ if __name__ == "__main__":
         
     # fit R and mu_R
     if False:
+        
+        with open("kitti_velocity8_Q2.cpkl",'rb') as f:
+                kf_params = pickle.load(f) 
+        
         for ber in [2.2]:
             skewed_iou = []
             localizer_iou = []
@@ -559,9 +571,9 @@ if __name__ == "__main__":
             print("Mean 1-step state error: {}".format(mean))
             print("1-step covariance: {}".format(covariance))
        
+
         
-        
-        with open("kitti_velocity8_QR.cpkl",'wb') as f:
+        with open("kitti_velocity8_QR2.cpkl",'wb') as f:
                 pickle.dump(kf_params,f)
         
         
@@ -574,9 +586,9 @@ if __name__ == "__main__":
 
         
     if True:
-        with open("kitti_velocity8_QR.cpkl","rb") as f:
+        with open("kitti_velocity8_QR2.cpkl","rb") as f:
               kf_params = pickle.load(f)        
-              kf_params["P"][[0,1,2,3],[0,1,2,3]] = torch.from_numpy(np.array([1,1,2,0.2])).float()
+              #kf_params["P"][[0,1,2,3],[0,1,2,3]] = torch.from_numpy(np.array([1,1,2,0.2])).float()
               #kf_params["R"] 
         skewed_iou = []        # how far off each skewed measurement is during init
         starting_iou = []     # after initialization, how far off are we
@@ -594,16 +606,16 @@ if __name__ == "__main__":
         
         degradation = np.array([2,2,4,0.01]) *0 # should roughly equal localizer error covariance
         
-        for iteration in range(50):
+        for iteration in range(200):
             
             batch,ims = next(iter(loader))
             
             # initialize tracker
-            tracker = Torch_KF("cpu",INIT = kf_params, ADD_MEAN_Q = True, ADD_MEAN_R = False)
+            tracker = Torch_KF("cpu",INIT = kf_params, ADD_MEAN_Q = True, ADD_MEAN_R = True)
         
             obj_ids = [i for i in range(len(batch))]
             
-            tracker.add(batch[:,0,:4],obj_ids)
+            tracker.add(batch[:,0,:8],obj_ids)
             
             # initialize storage
             ap_states = []
@@ -613,9 +625,9 @@ if __name__ == "__main__":
             apst_covs = []
             gts = []
             
-            apst_states.append(tracker.X[0])
-            apst_covs.append(torch.diag(tracker.P[0]))
-            gts.append(batch[0,n_pre-1,:])
+            apst_states.append(tracker.X[0].clone())
+            apst_covs.append(torch.diag(tracker.P[0]).clone())
+            gts.append(batch[0,n_pre-1,:].clone())
             
             # initialize tracker
             for frame in range(1,n_pre):
@@ -647,8 +659,8 @@ if __name__ == "__main__":
                 a_priori = torch.from_numpy(np.array(objs)).double()
                 a_priori_iou[frame_idx].append(iou(a_priori,gt))
             
-                ap_states.append(tracker.X[0])
-                ap_covs.append(torch.diag(tracker.P[0]))
+                ap_states.append(tracker.X[0].clone())
+                ap_covs.append(torch.diag(tracker.P[0]).clone())
 
                 # at this point, we have gt, the correct bounding boxes for this frame, 
                 # and the tracker states, the estimate of the state for this frame
@@ -733,7 +745,7 @@ if __name__ == "__main__":
                 error = (gt[:,:4]-pred)
                 meas_errors.append(error)
                 
-                loc_meas.append(pred[0])
+                loc_meas.append(pred[0].clone())
                 
                 # evaluate a posteriori estimate
                 tracker.update(pred,obj_ids)
@@ -742,34 +754,37 @@ if __name__ == "__main__":
                 a_posteriori = torch.from_numpy(np.array(objs)).double()
                 a_posteriori_iou[frame_idx].append(iou(a_posteriori,gt))
                 
-                apst_states.append(tracker.X[0])
-                apst_covs.append(torch.diag(tracker.P[0]))
+                apst_states.append(tracker.X[0].clone())
+                apst_covs.append(torch.diag(tracker.P[0]).clone())
                 
-                gts.append(gt[0])
+                gts.append(gt[0].clone())
             
-            if True:
+            if True and iteration < 10:
                 plot_states(ap_states,
                             ap_covs,
                             loc_meas,
                             apst_states,
                             apst_covs,
-                            gts)
+                            gts,
+                            save_num = iteration)
+                #break
+            else:
                 break
                 
             if iteration % 50 == 0:
                 print("Finished iteration {}".format(iteration))
             
-        meas_errors = torch.stack(meas_errors)
-        meas_errors = meas_errors.view(-1,4)
-        mean = torch.mean(meas_errors, dim = 0)    
-        covariance = torch.zeros((4,4))
-        for vec in meas_errors:
-            covariance += torch.mm((vec - mean).unsqueeze(1), (vec-mean).unsqueeze(1).transpose(0,1))
+        # meas_errors = torch.stack(meas_errors)
+        # meas_errors = meas_errors.view(-1,4)
+        # mean = torch.mean(meas_errors, dim = 0)    
+        # covariance = torch.zeros((4,4))
+        # for vec in meas_errors:
+        #     covariance += torch.mm((vec - mean).unsqueeze(1), (vec-mean).unsqueeze(1).transpose(0,1))
             
-        covariance = covariance / meas_errors.shape[0]
+        # covariance = covariance / meas_errors.shape[0]
         
-        kf_params["mu_R"] = mean
-        kf_params["R"] = covariance
+        # kf_params["mu_R"] = mean
+        # kf_params["R"] = covariance
         
         # with open("kitti_velocity8_QR.cpkl",'wb') as f:
         #       pickle.dump(kf_params,f)

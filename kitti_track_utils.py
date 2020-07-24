@@ -190,6 +190,7 @@ def load_models(
         yolo_resolution = 1024,
         yolo_checkpoint =  "/home/worklab/Desktop/checkpoints/yolo/yolov3.weights",
         localizer_checkpoint = "/home/worklab/Desktop/checkpoints/detrac_localizer_retrain2/cpu_resnet18_epoch14.pt"
+        localizer_checkpoint = "/home/worklab/Data/cv/checkpoints/cpu_kitti_resnet34_epoch70.pt"
         ):
     """
     Description

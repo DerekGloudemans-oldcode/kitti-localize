@@ -112,7 +112,7 @@ if __name__ == "__main__":
                           }
         
     # get filter covariance matrices
-    with open("kitti_velocity7_QR.cpkl" ,"rb") as f:
+    with open("kitti_velocity8_QR2.cpkl" ,"rb") as f:
              kf_params = pickle.load(f)
     
 
