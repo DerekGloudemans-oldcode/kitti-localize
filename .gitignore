@@ -2,3 +2,7 @@
 _working_outputs/
 
 pytorch-yolo-v3/
+
+*.png
+
+__pycache__/
