@@ -46,7 +46,7 @@ class Track_Dataset(data.Dataset):
     Creates an object for referencing the KITTI object tracking dataset (training set)
     """
     
-    def __init__(self, image_dir, label_dir,data_holdout = [18,19,20],n = 5):
+    def __init__(self, image_dir, label_dir,data_holdout = [18,19,20],n = 5, mode = "xysr"):
         """ initializes object. By default, the first track (cur_track = 0) is loaded 
         such that next(object) will pull next frame from the first track"""
 
@@ -86,13 +86,20 @@ class Track_Dataset(data.Dataset):
                                 if obj["id"] not in objs:
                                     objs[obj["id"]] = [[],[]]
                                   
-                                # covnert to xysr
+                                
                                 bbox = obj['bbox2d']
                                 new_bbox = np.zeros(4)
-                                new_bbox[0] = (bbox[2] + bbox[0])/2.0
-                                new_bbox[1] = (bbox[3] + bbox[1])/2.0
-                                new_bbox[2] = (bbox[2] - bbox[0])
-                                new_bbox[3] = (bbox[3] - bbox[1])/new_bbox[2]
+                                # covnert to xysr
+                                if mode == "xysr":
+                                    new_bbox[0] = (bbox[2] + bbox[0])/2.0
+                                    new_bbox[1] = (bbox[3] + bbox[1])/2.0
+                                    new_bbox[2] = (bbox[2] - bbox[0])
+                                    new_bbox[3] = (bbox[3] - bbox[1])/new_bbox[2]
+                                elif mode == "xywh":
+                                    new_bbox[0] = (bbox[2] + bbox[0])/2.0
+                                    new_bbox[1] = (bbox[3] + bbox[1])/2.0
+                                    new_bbox[2] = (bbox[2] - bbox[0])
+                                    new_bbox[3] = (bbox[3] - bbox[1])
                                 
                                 objs[obj['id']][0].append(new_bbox)
                                 objs[obj['id']][1].append(frames[j])

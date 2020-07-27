@@ -85,7 +85,8 @@ def iou(a,b):
     Description
     -----------
     Calculates intersection over union for all sets of boxes in a and b
-
+    This one is overwritten for xywh form!
+    
     Parameters
     ----------
     a : a torch of size [batch_size,4] of bounding boxes.
@@ -96,13 +97,13 @@ def iou(a,b):
     mean_iou - float between [0,1] with average iou for a and b
     """
     
-    area_a = a[:,2] * a[:,2] * a[:,3]
-    area_b = b[:,2] * b[:,2] * b[:,3]
+    area_a = a[:,2] * a[:,3]
+    area_b = b[:,2] * b[:,3]
     
     minx = torch.max(a[:,0]-a[:,2]/2, b[:,0]-b[:,2]/2)
     maxx = torch.min(a[:,0]+a[:,2]/2, b[:,0]+b[:,2]/2)
-    miny = torch.max(a[:,1]-a[:,2]*a[:,3]/2, b[:,1]-b[:,2]*b[:,3]/2)
-    maxy = torch.min(a[:,1]+a[:,2]*a[:,3]/2, b[:,1]+b[:,2]*b[:,3]/2)
+    miny = torch.max(a[:,1]-a[:,3]/2, b[:,1]-b[:,3]/2)
+    maxy = torch.min(a[:,1]+a[:,3]/2, b[:,1]+b[:,3]/2)
     zeros = torch.zeros(minx.shape,dtype = float)
     
     intersection = torch.max(zeros, maxx-minx) * torch.max(zeros,maxy-miny)
@@ -176,7 +177,7 @@ def plot_states(ap_states,
     apst_states = torch.stack(apst_states)
     apst_covs =   torch.stack(apst_covs)
     gts =         torch.stack(gts)
-    titles = ["X coordinate", "Y coordinate", "Scale", "Ratio", "X dot", "Y dot", "S dot", "R dot"]
+    titles = ["X coordinate", "Y coordinate", "Width", "Height", "X dot", "Y dot", "W dot", "H dot"]
     
     # format covariances - want each 
     covs = torch.empty(ap_covs.shape[0]+apst_covs.shape[0],ap_covs.shape[1])
@@ -205,11 +206,11 @@ def plot_states(ap_states,
         if i == 6:
             axs[i//2,i%2].set_ylim([-30,30])
             
-        if i == 3:
-           axs[i//2,i%2].set_ylim([0,2]) 
+        # if i == 3:
+        #    axs[i//2,i%2].set_ylim([0,2]) 
         
         if i == 7:
-             axs[i//2,i%2].set_ylim([-0.3,0.3]) 
+             axs[i//2,i%2].set_ylim([-30,30]) 
              
         # plot aposteriori state
         axs[i//2,i%2].plot(apst_states[:,i],"-", color = (0.4,0.1,0.5))
@@ -277,7 +278,7 @@ if __name__ == "__main__":
         train_lab_dir =   "/home/worklab/Data/cv/KITTI/data_tracking_label_2/training/label_02"
         train_calib_dir = "/home/worklab/Data/cv/KITTI/data_tracking_calib/training/calib"
         
-        dataset = Track_Dataset(train_im_dir,train_lab_dir,n = (n_pre + n_post+1))
+        dataset = Track_Dataset(train_im_dir,train_lab_dir,n = (n_pre + n_post+1),mode = "xywh")
         
         # 3. create training params
         params = {'batch_size' : b,
@@ -341,8 +342,8 @@ if __name__ == "__main__":
             error_vectors.append(error)
             
             # get ious
-            scores.append(score_tracker(tracker,batch,n_pre,1))
-            
+            scores.append(iou(gt,pred))
+                
             print("Finished iteration {}".format(iteration))
             
         # summary metrics    
@@ -357,7 +358,7 @@ if __name__ == "__main__":
         kf_params["mu_Q"] = mean
         kf_params["Q"] = covariance
         
-        with open("kitti_velocity8_Q2.cpkl","wb") as f:
+        with open("kitti_velocity8_Q_xywh.cpkl","wb") as f:
               pickle.dump(kf_params,f)
         
         print("---------- Model 1-step errors ----------")
@@ -369,7 +370,7 @@ if __name__ == "__main__":
     # fit R and mu_R
     if False:
         
-        with open("kitti_velocity8_Q2.cpkl",'rb') as f:
+        with open("kitti_velocity8_Q_xywh.cpkl",'rb') as f:
                 kf_params = pickle.load(f) 
         
         for ber in [2.2]:
@@ -383,7 +384,7 @@ if __name__ == "__main__":
                 gt = batch[:,frame_idx,:4]
                 
                 # get starting error
-                degradation = np.array([2,2,4,0.01]) *0 # should roughly equal localizer error covariance
+                degradation = np.array([4,4,4,4]) *0.1 # should roughly equal localizer error covariance
                 skew = np.random.normal(0,degradation,(len(batch),4))
                 gt_skew = gt + skew
                 skewed_iou.append(iou(gt_skew,gt))
@@ -448,7 +449,7 @@ if __name__ == "__main__":
         
                 # use either s or s x r for both dimensions, whichever is larger,so crop is square
                 #box_scales = np.max(np.stack((boxes[:,2],boxes[:,2]*boxes[:,3]),axis = 1),axis = 1)
-                box_scales = np.min(np.stack((boxes[:,2],boxes[:,2]*boxes[:,3]),axis = 1),axis = 1) #/2.0
+                box_scales = np.min(np.stack((boxes[:,2],boxes[:,3]),axis = 1),axis = 1) #/2.0
                     
                 #expand box slightly
                 #ber = 2.15
@@ -501,9 +502,9 @@ if __name__ == "__main__":
                         # convert xysr to xyxy
                         reg_true = torch.zeros([len(gt),4])
                         reg_true[:,0] =  gt[:,0] - gt[:,2]/2.0
-                        reg_true[:,1] =  gt[:,1] - gt[:,2]*gt[:,3]/2.0
+                        reg_true[:,1] =  gt[:,1] - gt[:,3]/2.0
                         reg_true[:,2] =  gt[:,0] + gt[:,2]/2.0
-                        reg_true[:,3] =  gt[:,1] + gt[:,2]*gt[:,3]/2.0
+                        reg_true[:,3] =  gt[:,1] + gt[:,3]/2.0
                         
                         reg_true[:,0] = reg_true[:,0] - new_boxes[:,1]
                         reg_true[:,1] = reg_true[:,1] - new_boxes[:,2]
@@ -531,12 +532,12 @@ if __name__ == "__main__":
                 detections[:,1] = detections[:,1]*box_scales/224 + new_boxes[:,2]
                 detections[:,3] = detections[:,3]*box_scales/224 + new_boxes[:,2]
         
-                # convert into xysr form 
+                # convert into xywh form 
                 output = np.zeros([len(detections),4])
                 output[:,0] = (detections[:,0] + detections[:,2]) / 2.0
                 output[:,1] = (detections[:,1] + detections[:,3]) / 2.0
                 output[:,2] = (detections[:,2] - detections[:,0])
-                output[:,3] = (detections[:,3] - detections[:,1]) / output[:,2]
+                output[:,3] = (detections[:,3] - detections[:,1]) 
                 pred = torch.from_numpy(output)
                 
                 
@@ -573,7 +574,7 @@ if __name__ == "__main__":
        
 
         
-        # with open("kitti_velocity8_QR2.cpkl",'wb') as f:
+        # with open("kitti_velocity8_QR_xywh.cpkl",'wb') as f:
         #         pickle.dump(kf_params,f)
         
         
@@ -586,11 +587,11 @@ if __name__ == "__main__":
 
         
     if True:
-        with open("kitti_velocity8_QR2.cpkl","rb") as f:
+        with open("kitti_velocity8_QR_xywh.cpkl","rb") as f:
               kf_params = pickle.load(f)        
               #kf_params["P"][[0,1,2,3],[0,1,2,3]] = torch.from_numpy(np.array([1,1,2,0.2])).float()
               #kf_params["R"] 
-              kf_params["Q"][6,6] /= 15
+              kf_params["Q"][6,6] /= 5
         skewed_iou = []        # how far off each skewed measurement is during init
         starting_iou = []     # after initialization, how far off are we
         a_priori_iou = {}      # after prediction step, how far off is the state
@@ -612,7 +613,7 @@ if __name__ == "__main__":
             batch,ims = next(iter(loader))
             
             # initialize tracker
-            tracker = Torch_KF("cpu",INIT = kf_params, ADD_MEAN_Q = True, ADD_MEAN_R = True)
+            tracker = Torch_KF("cpu",INIT = kf_params, ADD_MEAN_Q = True, ADD_MEAN_R = False)
         
             obj_ids = [i for i in range(len(batch))]
             
@@ -637,7 +638,7 @@ if __name__ == "__main__":
                 # here, rather than updating with ground truth we degrade ground truth by some amount
                 measurement = batch[:,frame,:4]
                 skew = np.random.normal(0,degradation,(len(batch),4))
-                measurement_skewed = measurement + skew
+                measurement_Trueskewed = measurement + skew
                 
                 skewed_iou.append(iou(measurement,measurement_skewed))
                 tracker.update2(measurement_skewed,obj_ids)
@@ -697,8 +698,8 @@ if __name__ == "__main__":
                 new_boxes = np.zeros([len(boxes),5]) 
         
                 # use either s or s x r for both dimensions, whichever is larger,so crop is square
-                #box_scales = np.max(np.stack((boxes[:,2],boxes[:,2]*boxes[:,3]),axis = 1),axis = 1)
-                box_scales = np.min(np.stack((boxes[:,2],boxes[:,2]*boxes[:,3]),axis = 1),axis = 1) #/2.0
+                #box_scTrueales = np.max(np.stack((boxes[:,2],boxes[:,2]*boxes[:,3]),axis = 1),axis = 1)
+                box_scales = np.min(np.stack((boxes[:,2],boxes[:,3]),axis = 1),axis = 1) #/2.0
                     
                 #expand box slightly
                 ber = 2.15
@@ -739,7 +740,7 @@ if __name__ == "__main__":
                 output[:,0] = (detections[:,0] + detections[:,2]) / 2.0
                 output[:,1] = (detections[:,1] + detections[:,3]) / 2.0
                 output[:,2] = (detections[:,2] - detections[:,0])
-                output[:,3] = (detections[:,3] - detections[:,1]) / output[:,2]
+                output[:,3] = (detections[:,3] - detections[:,1])
                 pred = torch.from_numpy(output)
                 
                 # evaluate localizer
