@@ -46,7 +46,7 @@ class Track_Dataset(data.Dataset):
     Creates an object for referencing the KITTI object tracking dataset (training set)
     """
     
-    def __init__(self, image_dir, label_dir,data_holdout = [18,19,20],n = 5, mode = "xysr"):
+    def __init__(self, image_dir, label_dir,data_holdout = [18,19,20],n = 7 , mode = "xysr"):
         """ initializes object. By default, the first track (cur_track = 0) is loaded 
         such that next(object) will pull next frame from the first track"""
 
@@ -84,7 +84,7 @@ class Track_Dataset(data.Dataset):
                                 # add obj id to dictionary if this is the first frame its in
                                 # first list holds bboxes, second holds frames
                                 if obj["id"] not in objs:
-                                    objs[obj["id"]] = [[],[]]
+                                    objs[obj["id"]] = [[],[],[],[]]
                                   
                                 
                                 bbox = obj['bbox2d']
@@ -103,11 +103,13 @@ class Track_Dataset(data.Dataset):
                                 
                                 objs[obj['id']][0].append(new_bbox)
                                 objs[obj['id']][1].append(frames[j])
+                                objs[obj['id']][2].append(obj['truncation'])
+                                objs[obj['id']][3].append(obj['occlusion'])
                                 self.frame_objs[frames[j]].append(new_bbox)
                 
                 for key in objs:
                     obj = objs[key]
-                    labels = np.array(obj[0])
+                    labels = (np.array(obj[0]),np.array(obj[2]),np.array(obj[3]))
                     data = obj[1]
                     if len(data) >= self.n:
                         self.all_data.append(data)
@@ -117,18 +119,22 @@ class Track_Dataset(data.Dataset):
     
         # estimate speed 
         with_speed = []
-        for bboxes in self.all_labels:     
+        for (bboxes,truncation,occlusion) in self.all_labels:     
             speeds = np.zeros(bboxes.shape)  
             speeds[:len(speeds)-1,:] = bboxes[1:,:] - bboxes[:len(bboxes)-1,:]
             speeds[-1,:] = speeds[-2,:]
             #plt.figure()
             #plt.plot(speeds[:,0])
-            speeds = savgol_filter(speeds,5,2,axis = 0)
+            try:
+                speeds = savgol_filter(speeds,5,2,axis = 0)
+            except:
+                print(speeds.shape)
+                print(bboxes.shape)
             #plt.plot(speeds[:,0])
             #plt.legend(["Unsmoothed","Smoothed"])
             #plt.show()
             combined = np.concatenate((bboxes,speeds),axis = 1)
-            with_speed.append(combined)
+            with_speed.append((combined,truncation,occlusion))
         self.all_labels = with_speed
              
             
@@ -175,7 +181,6 @@ class Track_Dataset(data.Dataset):
         label_list = []
         idx = 0
         frame_det_list = []
-        
         for det in det_dict_list:
             assigned = False
             while assigned == False:
@@ -210,7 +215,7 @@ class Track_Dataset(data.Dataset):
         """
     
         # load image and get label        
-        data = self.all_labels[index]
+        (data,truncation,occlusion) = self.all_labels[index]
         
         # if track is too short, just use the next index instead
         while len(data) <= self.n:
@@ -219,11 +224,13 @@ class Track_Dataset(data.Dataset):
         
         start = np.random.randint(0,len(data)-self.n)
         data = data[start:start+self.n,:]
+        truncation = truncation[start:start+self.n]
+        occlusion = occlusion[start:start+self.n]
         
         ims = self.all_data[index]
         ims = ims[start:start+self.n]
         
-        return data, ims
+        return data, ims, truncation, occlusion
      
         
         
