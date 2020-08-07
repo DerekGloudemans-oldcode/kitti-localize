@@ -86,12 +86,12 @@ if __name__ == "__main__":
     overlap = 0.2
     conf_cutoff = 3
     iou_cutoff = 0.75
-    det_step = 5
+    det_step = 10
     srr = 1
-    ber = 2.1 #1.95
+    ber = 2.2 #1.95
     init_frames = 1
     matching_cutoff = 100
-    mask_others = True
+    mask_others = False
     
    
     SHOW = False

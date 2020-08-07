@@ -290,14 +290,14 @@ if __name__ == "__main__":
 #    train_calib_dir = "C:\\Users\\derek\\Desktop\\KITTI\\Tracking\\data_tracking_calib(1)\\training\\calib"
     
     # worklab GTX 1080 workstation
-    # train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
-    # train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
-    # train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
+    train_im_dir =    "/home/worklab/Desktop/KITTI/data_tracking_image_2/training/image_02"  
+    train_lab_dir =   "/home/worklab/Desktop/KITTI/data_tracking_label_2/training/label_02"
+    train_calib_dir = "/home/worklab/Desktop/KITTI/data_tracking_calib/training/calib"
     
     ## worklab Quadro workstation
-    train_im_dir =    "/home/worklab/Data/cv/KITTI/data_tracking_image_2/training/image_02" 
-    train_lab_dir =   "/home/worklab/Data/cv/KITTI/data_tracking_label_2/training/label_02"
-    train_calib_dir = "/home/worklab/Data/cv/KITTI/data_tracking_calib/training/calib"
+    # train_im_dir =    "/home/worklab/Data/cv/KITTI/data_tracking_image_2/training/image_02" 
+    # train_lab_dir =   "/home/worklab/Data/cv/KITTI/data_tracking_label_2/training/label_02"
+    # train_calib_dir = "/home/worklab/Data/cv/KITTI/data_tracking_calib/training/calib"
     
     test = Track_Dataset(train_im_dir,train_lab_dir)
     # test.load_track(10)
